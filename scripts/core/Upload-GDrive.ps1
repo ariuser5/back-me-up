@@ -1,3 +1,24 @@
+<#
+.SYNOPSIS
+Uploads a backup archive to a remote rclone destination.
+
+.DESCRIPTION
+Validates archive and rclone availability, uploads a single archive file to the
+configured remote path, and optionally deletes the local archive on success.
+
+.PARAMETER ArchivePath
+Full path of the local archive to upload.
+
+.PARAMETER RcloneDest
+Target rclone destination path.
+
+.PARAMETER KeepLocal
+Keeps local archive after upload when set.
+
+.EXAMPLE
+.\Upload-GDrive.ps1 -ArchivePath 'C:\Backups\backup.7z' -RcloneDest 'gdrive:Backups'
+#>
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]

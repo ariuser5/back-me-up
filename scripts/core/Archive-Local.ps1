@@ -1,3 +1,33 @@
+<#
+.SYNOPSIS
+Creates an encrypted 7-Zip archive from a source directory.
+
+.DESCRIPTION
+Builds a timestamped archive under the configured output root, optionally filtering
+files with exclude patterns, and returns the full archive path on success.
+
+.PARAMETER SourcePath
+Directory to archive.
+
+.PARAMETER OutputRoot
+Root directory where archive output is written.
+
+.PARAMETER ArchivePrefix
+Prefix used in the generated archive file name.
+
+.PARAMETER CompressionLevel
+7-Zip compression level from 0 to 9.
+
+.PARAMETER ExcludePattern
+Wildcard patterns for files or directories to exclude.
+
+.PARAMETER ArchivePassword
+Secure string password used for archive encryption.
+
+.EXAMPLE
+.\Archive-Local.ps1 -SourcePath 'D:\Data' -ArchivePassword $securePassword
+#>
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]

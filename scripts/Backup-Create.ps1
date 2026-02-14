@@ -1,3 +1,32 @@
+<#
+.SYNOPSIS
+Coordinates backup creation, encryption, upload, and cleanup.
+
+.DESCRIPTION
+Main orchestration script that validates source input, determines exclusion patterns,
+obtains an archive password (provided directly or via Bitwarden), creates an encrypted
+archive, uploads it to remote storage, and performs Bitwarden cleanup when needed.
+
+.PARAMETER SourcePath
+Directory to back up.
+
+.PARAMETER ExcludePattern
+Additional wildcard patterns to exclude from archive creation.
+
+.PARAMETER KeepLocal
+Keeps the local archive after upload.
+
+.PARAMETER RcloneDest
+Optional rclone destination path or pattern. Supports placeholder
+{SourceFolderName}, resolved with the same safe source name used for archives.
+
+.PARAMETER ArchivePassword
+Optional secure password for the archive. If omitted, Bitwarden is used.
+
+.EXAMPLE
+.\scripts\Backup-Create.ps1 -SourcePath 'D:\Data'
+#>
+
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
@@ -8,6 +37,9 @@ param(
 
     [Parameter()]
     [switch]$KeepLocal,
+
+    [Parameter()]
+    [string]$RcloneDest = 'gdrive:Backups/{SourceFolderName}',
 
     [Parameter()]
     [System.Security.SecureString]$ArchivePassword
@@ -36,7 +68,6 @@ if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
     throw "Source path '$SourcePath' does not exist or is not a directory."
 }
 
-$predefinedRcloneDest = 'gdrive:Backups/Security-SD-Card'
 $bwItemName = [string]$env:BACKUP_BW_ITEM_NAME
 $bwItemId = [string]$env:BACKUP_BW_ITEM_ID
 
@@ -57,6 +88,11 @@ $callerExcludePatterns = @($ExcludePattern | Where-Object { -not [string]::IsNul
 $effectiveExcludePatterns = @($defaultExcludePatterns + $callerExcludePatterns | Select-Object -Unique)
 
 $safeSourceName = Get-BackupSafeFolderName -Path $SourcePath
+$resolvedRcloneDest = [regex]::Replace(
+    $RcloneDest,
+    '\{SourceFolderName\}',
+    [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $safeSourceName }
+)
 $archivePrefix = "backup-$safeSourceName"
 $cleanupStateJson = $null
 $effectiveArchivePassword = $null
@@ -103,7 +139,7 @@ try {
         throw 'Archive script did not return an archive path.'
     }
 
-    & $uploadScriptPath -ArchivePath $archivePath -RcloneDest $predefinedRcloneDest -KeepLocal:$KeepLocal -Verbose:$verboseEnabled | Out-Null
+    & $uploadScriptPath -ArchivePath $archivePath -RcloneDest $resolvedRcloneDest -KeepLocal:$KeepLocal -Verbose:$verboseEnabled | Out-Null
     Write-BackupLog -Level INFO -Message 'Backup completed successfully.'
 }
 catch {

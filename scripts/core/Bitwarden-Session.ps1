@@ -1,3 +1,31 @@
+<#
+.SYNOPSIS
+Manages Bitwarden password acquisition and cleanup flow.
+
+.DESCRIPTION
+Provides Acquire and Cleanup actions for backup workflows. Acquire ensures an
+authenticated and unlocked Bitwarden session, retrieves the requested password,
+and emits state used later by Cleanup to restore previous session conditions.
+
+.PARAMETER Action
+Action to perform: Acquire or Cleanup.
+
+.PARAMETER BwItemName
+Bitwarden item name used to retrieve a password.
+
+.PARAMETER BwItemId
+Bitwarden item id used to retrieve a password.
+
+.PARAMETER BwSession
+Optional pre-existing BW_SESSION token to inject for acquisition.
+
+.PARAMETER CleanupStateJson
+Serialized cleanup state returned by the Acquire action.
+
+.EXAMPLE
+.\Bitwarden-Session.ps1 -Action Acquire -BwItemId 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+#>
+
 [CmdletBinding()]
 param(
     [Parameter()]
@@ -36,7 +64,7 @@ function Get-BwStatusInternal {
     }
 }
 
-function Ensure-BwSessionInternal {
+function Set-BwSessionInternal {
     param([string]$InjectedSession)
 
     $state = [ordered]@{
@@ -152,7 +180,7 @@ if ($Action -eq 'Acquire') {
     Write-BackupDebug -Message $itemSelectorMessage
 
     $originalBwSession = $env:BW_SESSION
-    $bwState = Ensure-BwSessionInternal -InjectedSession $BwSession | Select-Object -Last 1
+    $bwState = Set-BwSessionInternal -InjectedSession $BwSession | Select-Object -Last 1
     if ($null -eq $bwState -or -not ($bwState.PSObject.Properties.Name -contains 'UsedInjectedToken')) {
         throw 'Failed to establish internal Bitwarden session state.'
     }
