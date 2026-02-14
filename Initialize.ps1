@@ -71,8 +71,9 @@ if (-not [string]::IsNullOrWhiteSpace($configDir)) {
 
 $config = [ordered]@{
     SourcePath = $workspaceRoot
-    KeepLocal = $false
-    RcloneDest = 'gdrive:Backups/{SourceFolderName}'
+    BackupLocation = (Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups')
+    ExcludePattern = @('[[]no-sync[]]*', 'back-me-up*', '.ctrl*', 'System Volume Information*', '$RECYCLE.BIN*')
+    EncryptionEnabled = $false
 }
 
 $configJson = $config | ConvertTo-Json -Depth 5

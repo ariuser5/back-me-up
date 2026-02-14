@@ -4,10 +4,10 @@ Shared helper functions for backup scripts.
 
 .DESCRIPTION
 Contains reusable logging, command invocation, naming, and dependency discovery
-helpers used by the backup orchestration and core scripts.
+helpers used by the local backup scripts.
 
 .EXAMPLE
-. .\Common.ps1
+. .\scripts\Common.ps1
 #>
 
 function Write-BackupLog {

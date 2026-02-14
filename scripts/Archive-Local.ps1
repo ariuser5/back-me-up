@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-Creates an encrypted 7-Zip archive from a source directory.
+Creates a local 7-Zip archive from a source directory.
 
 .DESCRIPTION
 Builds a timestamped archive under the configured output root, optionally filtering
 files with exclude patterns, and returns the full archive path on success.
+Encryption is applied only when ArchivePassword is provided.
 
 .PARAMETER SourcePath
 Directory to archive.
@@ -22,10 +23,13 @@ Prefix used in the generated archive file name.
 Wildcard patterns for files or directories to exclude.
 
 .PARAMETER ArchivePassword
-Secure string password used for archive encryption.
+Optional secure string password used for archive encryption.
 
 .EXAMPLE
-.\Archive-Local.ps1 -SourcePath 'D:\Data' -ArchivePassword $securePassword
+.\scripts\Archive-Local.ps1 -SourcePath 'D:\Data' -OutputRoot 'D:\Backups'
+
+.EXAMPLE
+.\scripts\Archive-Local.ps1 -SourcePath 'D:\Data' -ArchivePassword $securePassword
 #>
 
 [CmdletBinding()]
@@ -47,7 +51,7 @@ param(
     [Parameter()]
     [string[]]$ExcludePattern,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter()]
     [System.Security.SecureString]$ArchivePassword
 )
 
@@ -129,15 +133,19 @@ if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
     throw "Source path '$SourcePath' does not exist or is not a directory."
 }
 
-Write-BackupDebug -Message "Archive creation started (SourcePath='$SourcePath', CompressionLevel=$CompressionLevel, ExcludePatternCount=$(@($ExcludePattern).Count))."
+$encryptArchive = $PSBoundParameters.ContainsKey('ArchivePassword')
+Write-BackupDebug -Message "Archive creation started (SourcePath='$SourcePath', CompressionLevel=$CompressionLevel, ExcludePatternCount=$(@($ExcludePattern).Count), Encrypt=$encryptArchive)."
 
 $passwordPtr = [System.IntPtr]::Zero
 try {
-    $passwordPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ArchivePassword)
-    $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPtr)
+    $password = $null
+    if ($encryptArchive) {
+        $passwordPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ArchivePassword)
+        $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPtr)
 
-    if ([string]::IsNullOrWhiteSpace($password)) {
-        throw 'ArchivePassword is empty.'
+        if ([string]::IsNullOrWhiteSpace($password)) {
+            throw 'ArchivePassword is empty.'
+        }
     }
 
     $sourceFolder = (Resolve-Path -LiteralPath $SourcePath).Path
@@ -171,17 +179,25 @@ try {
         'a',
         '-t7z',
         "-mx=$CompressionLevel",
-        '-mhe=on',
-        "-p$password",
         '-y',
         $archivePath
     )
+
+    if ($encryptArchive) {
+        $args += @('-mhe=on', "-p$password")
+    }
 
     $args += $archiveInputs
 
     Push-Location -Path $sourceFolder
     try {
-        Write-BackupLog -Level INFO -Message "Creating encrypted archive at '$archivePath'."
+        if ($encryptArchive) {
+            Write-BackupLog -Level INFO -Message "Creating encrypted archive at '$archivePath'."
+        }
+        else {
+            Write-BackupLog -Level INFO -Message "Creating archive at '$archivePath'."
+        }
+
         Invoke-BackupExternalCommand -FilePath $sevenZipPath -Arguments $args -FriendlyName '7-Zip'
     }
     finally {
