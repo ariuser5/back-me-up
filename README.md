@@ -7,9 +7,10 @@ This repository is intended to live inside the location you want to back up regu
 The repo provides a PowerShell workflow that creates local `.7z` backups from a configured source path.
 
 Recommended layout:
-1. Clone this repo into the location you want to protect.
-2. Rename the repo folder to `.ctrl`.
-3. Run backups from `.ctrl` using `Run.ps1`.
+1. Create a `.ctrl` folder in the root of the directory you want to back up.
+2. Keep `.ctrl` as the control folder.
+3. Clone this repo under `.ctrl/back-me-up`.
+4. Run backups from `.ctrl/back-me-up` using `Run.ps1`.
 
 ## Main workflow
 
@@ -41,6 +42,8 @@ Default generated config:
   "EncryptionEnabled": false
 }
 ```
+
+In this layout, `SourcePath` defaults to the parent directory of `.ctrl`.
 
 ## Interactivity model
 

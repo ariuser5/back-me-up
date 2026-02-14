@@ -7,7 +7,7 @@ Creates a local backup.config.json file with defaults based on the current clone
 location. The generated file is intended to be machine-local and is ignored by git.
 
 .PARAMETER ConfigPath
-Optional path to the config file to create. Defaults to .ctrl\backup.config.json.
+Optional path to the config file to create. Defaults to backup.config.json in the repo root.
 
 .PARAMETER Force
 Overwrites an existing config file without prompting.
@@ -31,8 +31,26 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Get-BackupDefaultSourcePath {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    $repoName = Split-Path -Path $RepoRoot -Leaf
+    $repoParent = Split-Path -Path $RepoRoot -Parent
+    $parentName = if ([string]::IsNullOrWhiteSpace($repoParent)) { '' } else { Split-Path -Path $repoParent -Leaf }
+
+    if ([string]::Equals($repoName, '.ctrl', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return (Split-Path -Path $RepoRoot -Parent)
+    }
+
+    if ([string]::Equals($parentName, '.ctrl', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return (Split-Path -Path $repoParent -Parent)
+    }
+
+    return $repoParent
+}
+
 $scriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
-$workspaceRoot = Split-Path -Path $scriptRoot -Parent
+$defaultSourcePath = Get-BackupDefaultSourcePath -RepoRoot $scriptRoot
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path -Path $scriptRoot -ChildPath 'backup.config.json'
@@ -70,7 +88,7 @@ if (-not [string]::IsNullOrWhiteSpace($configDir)) {
 }
 
 $config = [ordered]@{
-    SourcePath = $workspaceRoot
+    SourcePath = $defaultSourcePath
     BackupLocation = (Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups')
     ExcludePattern = @('[[]no-sync[]]*', 'back-me-up*', '.ctrl*', 'System Volume Information*', '$RECYCLE.BIN*')
     EncryptionEnabled = $false

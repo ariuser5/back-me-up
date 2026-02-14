@@ -32,7 +32,7 @@ Only valid with -NonInteractive. Requires explicit values for SourcePath,
 BackupLocation, ExcludePattern, and Encrypt.
 
 .PARAMETER ConfigPath
-Path to config JSON. Defaults to .ctrl\backup.config.json.
+Path to config JSON. Defaults to backup.config.json in the repo root.
 
 .EXAMPLE
 .\Run.ps1
@@ -74,6 +74,24 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+function Get-BackupDefaultSourcePath {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    $repoName = Split-Path -Path $RepoRoot -Leaf
+    $repoParent = Split-Path -Path $RepoRoot -Parent
+    $parentName = if ([string]::IsNullOrWhiteSpace($repoParent)) { '' } else { Split-Path -Path $repoParent -Leaf }
+
+    if ([string]::Equals($repoName, '.ctrl', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return (Split-Path -Path $RepoRoot -Parent)
+    }
+
+    if ([string]::Equals($parentName, '.ctrl', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return (Split-Path -Path $repoParent -Parent)
+    }
+
+    return $repoParent
+}
 
 function Test-ConfigProperty {
     param(
@@ -192,7 +210,7 @@ function Read-ArchivePasswordFromPrompt {
 }
 
 $scriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
-$workspaceRoot = Split-Path -Path $scriptRoot -Parent
+$defaultSourceRoot = Get-BackupDefaultSourcePath -RepoRoot $scriptRoot
 $scriptsDir = Join-Path -Path $scriptRoot -ChildPath 'scripts'
 $commonScriptPath = Join-Path -Path $scriptsDir -ChildPath 'Common.ps1'
 $archiveScriptPath = Join-Path -Path $scriptsDir -ChildPath 'Archive-Local.ps1'
@@ -226,7 +244,7 @@ if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
     }
 }
 
-$defaultSourcePath = $workspaceRoot
+$defaultSourcePath = $defaultSourceRoot
 $defaultBackupLocation = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups'
 $defaultExcludePattern = @('[[]no-sync[]]*', '.ctrl*')
 
