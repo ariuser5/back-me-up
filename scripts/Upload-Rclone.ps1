@@ -14,6 +14,7 @@ Rclone destination root, for example gdrive:Documents/some/path.
 
 .PARAMETER ContainerName
 Subfolder name under RemoteRoot where the file should be uploaded.
+If empty or whitespace, archive is uploaded directly under RemoteRoot.
 
 .EXAMPLE
 .\scripts\Upload-Rclone.ps1 -ArchivePath 'C:\Temp\backup.7z' -RemoteRoot 'gdrive:Documents/backups' -ContainerName 'MyDrive'
@@ -30,7 +31,7 @@ param(
     [string]$RemoteRoot,
 
     [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
+    [AllowEmptyString()]
     [string]$ContainerName
 )
 
@@ -51,7 +52,13 @@ if ($null -eq $rcloneCommand) {
 
 $archiveFileName = [System.IO.Path]::GetFileName($ArchivePath)
 $normalizedRemoteRoot = $RemoteRoot.TrimEnd('/')
-$targetRemotePath = "$normalizedRemoteRoot/$ContainerName/$archiveFileName"
+$resolvedContainerName = if ([string]::IsNullOrWhiteSpace($ContainerName)) { '' } else { $ContainerName.Trim() }
+$targetRemotePath = if ([string]::IsNullOrWhiteSpace($resolvedContainerName)) {
+    "$normalizedRemoteRoot/$archiveFileName"
+}
+else {
+    "$normalizedRemoteRoot/$resolvedContainerName/$archiveFileName"
+}
 
 Write-BackupLog -Level INFO -Message "Uploading archive to '$targetRemotePath' via rclone."
 Invoke-BackupExternalCommand -FilePath $rcloneCommand.Source -Arguments @('copyto', $ArchivePath, $targetRemotePath) -FriendlyName 'rclone'

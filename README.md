@@ -49,6 +49,11 @@ In this layout, `SourcePath` defaults to the parent directory of `.ctrl`.
 - Local paths, for example `C:\Backups`
 - rclone remotes, for example `gdrive:Documents/some/path`
 
+`DestinationName` supports:
+- Omitted: defaults to source folder name (current behavior)
+- Non-empty value: uses the provided nested folder name
+- Empty or whitespace: no nested folder, archive is written at destination root
+
 ## Interactivity model
 
 - Default: interactive prompts (config-backed values shown and editable).
@@ -87,6 +92,18 @@ Non-interactive with rclone remote destination:
 
 ```powershell
 pwsh -File .\Run.ps1 -NonInteractive -BackupLocation "gdrive:Documents/some/path"
+```
+
+Non-interactive with custom nested destination folder:
+
+```powershell
+pwsh -File .\Run.ps1 -NonInteractive -DestinationName "my-custom-name-I-wish"
+```
+
+Non-interactive with archive at destination root (no nested folder):
+
+```powershell
+pwsh -File .\Run.ps1 -NonInteractive -DestinationName ""
 ```
 
 Unattended run with explicit values:

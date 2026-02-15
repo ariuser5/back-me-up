@@ -13,6 +13,11 @@ Directory to archive.
 .PARAMETER OutputRoot
 Root directory where archive output is written.
 
+.PARAMETER DestinationFolderName
+Optional nested folder name under OutputRoot.
+When omitted, defaults to a safe name derived from SourcePath.
+When empty or whitespace, archive is placed directly under OutputRoot.
+
 .PARAMETER ArchivePrefix
 Prefix used in the generated archive file name.
 
@@ -40,6 +45,10 @@ param(
     [Parameter()]
     [ValidateNotNullOrEmpty()]
     [string]$OutputRoot = (Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups'),
+
+    [Parameter()]
+    [AllowEmptyString()]
+    [string]$DestinationFolderName,
 
     [Parameter()]
     [string]$ArchivePrefix,
@@ -156,7 +165,16 @@ try {
         $ArchivePrefix = $safeFolderName
     }
 
-    $targetOutputDir = Join-Path -Path $OutputRoot -ChildPath $safeFolderName
+    $destinationFolderSpecified = $PSBoundParameters.ContainsKey('DestinationFolderName')
+    $resolvedDestinationFolderName = if ($destinationFolderSpecified) { $DestinationFolderName } else { $safeFolderName }
+
+    if ([string]::IsNullOrWhiteSpace($resolvedDestinationFolderName)) {
+        $targetOutputDir = $OutputRoot
+    }
+    else {
+        $targetOutputDir = Join-Path -Path $OutputRoot -ChildPath $resolvedDestinationFolderName.Trim()
+    }
+
     New-Item -ItemType Directory -Path $targetOutputDir -Force | Out-Null
     Write-BackupDebug -Message "Archive output directory resolved to '$targetOutputDir'."
 
@@ -175,7 +193,7 @@ try {
         Write-BackupDebug -Message 'No exclude patterns provided; archiving all files under source path.'
     }
 
-    $args = @(
+    $zipArguments = @(
         'a',
         '-t7z',
         "-mx=$CompressionLevel",
@@ -184,10 +202,10 @@ try {
     )
 
     if ($encryptArchive) {
-        $args += @('-mhe=on', "-p$password")
+        $zipArguments += @('-mhe=on', "-p$password")
     }
 
-    $args += $archiveInputs
+    $zipArguments += $archiveInputs
 
     Push-Location -Path $sourceFolder
     try {
@@ -198,7 +216,7 @@ try {
             Write-BackupLog -Level INFO -Message "Creating archive at '$archivePath'."
         }
 
-        Invoke-BackupExternalCommand -FilePath $sevenZipPath -Arguments $args -FriendlyName '7-Zip'
+        Invoke-BackupExternalCommand -FilePath $sevenZipPath -Arguments $zipArguments -FriendlyName '7-Zip'
     }
     finally {
         Pop-Location

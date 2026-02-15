@@ -15,6 +15,11 @@ Path to the folder/drive that will be archived.
 Backup destination root. Supports local paths (for example C:\Backups) and
 rclone remotes (for example gdrive:Documents/some/path).
 
+.PARAMETER DestinationName
+Optional nested folder name under BackupLocation.
+When omitted, defaults to the source folder name.
+When provided as empty or whitespace, no nested folder is used.
+
 .PARAMETER ExcludePattern
 Wildcard patterns excluded from the archive.
 
@@ -39,6 +44,12 @@ Path to config JSON. Defaults to backup.config.json in the repo root.
 .EXAMPLE
 $pw = Read-Host "Archive password" -AsSecureString
 .\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
+
+.EXAMPLE
+.\Run.ps1 -NonInteractive -DestinationName "my-custom-name-I-wish"
+
+.EXAMPLE
+.\Run.ps1 -NonInteractive -DestinationName ""
 #>
 
 [CmdletBinding()]
@@ -48,6 +59,10 @@ param(
 
     [Parameter()]
     [string]$BackupLocation,
+
+    [Parameter()]
+    [AllowEmptyString()]
+    [string]$DestinationName,
 
     [Parameter()]
     [string[]]$ExcludePattern,
@@ -287,6 +302,7 @@ if (Test-ConfigProperty -Config $config -Name 'EncryptionEnabled') {
 
 $sourcePathSpecified = $PSBoundParameters.ContainsKey('SourcePath')
 $backupLocationSpecified = $PSBoundParameters.ContainsKey('BackupLocation')
+$destinationNameSpecified = $PSBoundParameters.ContainsKey('DestinationName')
 $excludePatternSpecified = $PSBoundParameters.ContainsKey('ExcludePattern')
 $encryptSpecified = $PSBoundParameters.ContainsKey('Encrypt')
 $passwordSpecified = $PSBoundParameters.ContainsKey('ArchivePassword')
@@ -358,6 +374,13 @@ if (-not $useEncryption -and $passwordSpecified) {
 
 $safeSourceName = Get-BackupSafeFolderName -Path $resolvedSourcePath
 $archivePrefix = "backup-$safeSourceName"
+$resolvedDestinationFolderName = if ($destinationNameSpecified) { $DestinationName } else { $safeSourceName }
+if ([string]::IsNullOrWhiteSpace($resolvedDestinationFolderName)) {
+    $resolvedDestinationFolderName = ''
+}
+else {
+    $resolvedDestinationFolderName = $resolvedDestinationFolderName.Trim()
+}
 
 $stagingRoot = $null
 if ($destination.Provider -eq 'Rclone') {
@@ -367,6 +390,7 @@ if ($destination.Provider -eq 'Rclone') {
 $archiveParams = @{
     SourcePath = $resolvedSourcePath
     OutputRoot = if ($destination.Provider -eq 'Local') { $destination.Root } else { $stagingRoot }
+    DestinationFolderName = $resolvedDestinationFolderName
     ArchivePrefix = $archivePrefix
     CompressionLevel = 9
     ExcludePattern = @($resolvedExcludePattern)
@@ -386,7 +410,7 @@ try {
 
     if ($destination.Provider -eq 'Rclone') {
         $localArchivePath = $archivePath
-        $archivePath = (& $rcloneUploadScriptPath -ArchivePath $localArchivePath -RemoteRoot $destination.Root -ContainerName $safeSourceName -Verbose:($VerbosePreference -ne 'SilentlyContinue') | Select-Object -Last 1)
+        $archivePath = (& $rcloneUploadScriptPath -ArchivePath $localArchivePath -RemoteRoot $destination.Root -ContainerName $resolvedDestinationFolderName -Verbose:($VerbosePreference -ne 'SilentlyContinue') | Select-Object -Last 1)
         if ([string]::IsNullOrWhiteSpace($archivePath)) {
             throw 'Rclone upload script did not return a remote archive path.'
         }
