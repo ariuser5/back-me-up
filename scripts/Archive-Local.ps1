@@ -21,6 +21,10 @@ When empty or whitespace, archive is placed directly under OutputRoot.
 .PARAMETER ArchivePrefix
 Prefix used in the generated archive file name.
 
+.PARAMETER ArchiveFileName
+Optional explicit archive file name. When provided, it overrides generated naming.
+If extension is omitted, .7z is appended.
+
 .PARAMETER CompressionLevel
 7-Zip compression level from 0 to 9.
 
@@ -52,6 +56,9 @@ param(
 
     [Parameter()]
     [string]$ArchivePrefix,
+
+    [Parameter()]
+    [string]$ArchiveFileName,
 
     [Parameter()]
     [ValidateRange(0, 9)]
@@ -178,8 +185,18 @@ try {
     New-Item -ItemType Directory -Path $targetOutputDir -Force | Out-Null
     Write-BackupDebug -Message "Archive output directory resolved to '$targetOutputDir'."
 
-    $timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-    $archiveName = "$ArchivePrefix-$timestamp.7z"
+    $archiveFileNameSpecified = $PSBoundParameters.ContainsKey('ArchiveFileName') -and -not [string]::IsNullOrWhiteSpace($ArchiveFileName)
+    if ($archiveFileNameSpecified) {
+        $archiveName = $ArchiveFileName.Trim()
+        if (-not $archiveName.EndsWith('.7z', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $archiveName = "$archiveName.7z"
+        }
+    }
+    else {
+        $timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+        $archiveName = "$ArchivePrefix-$timestamp.7z"
+    }
+
     $archivePath = Join-Path -Path $targetOutputDir -ChildPath $archiveName
 
     $listFilePath = $null

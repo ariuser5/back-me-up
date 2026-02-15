@@ -38,6 +38,7 @@ Default generated config:
 {
   "SourcePath": "<parent-of-.ctrl>",
   "BackupLocation": "%LOCALAPPDATA%\\PCOps\\Backups",
+  "NamePattern": "backup-{DestinationName}-{Now()}",
   "ExcludePattern": ["back-me-up*", ".ctrl*", "System Volume Information*", "$RECYCLE.BIN*", "[[]no-sync[]]*"],
   "EncryptionEnabled": false
 }
@@ -53,6 +54,13 @@ In this layout, `SourcePath` defaults to the parent directory of `.ctrl`.
 - Omitted: defaults to source folder name (current behavior)
 - Non-empty value: uses the provided nested folder name
 - Empty or whitespace: no nested folder, archive is written at destination root
+
+`NamePattern` supports placeholders:
+- `{DestinationName}`
+- `{SourceName}`
+- `{Now()}`
+
+Default: `backup-{SourceName}-{Now()}`
 
 ## Interactivity model
 
@@ -104,6 +112,12 @@ Non-interactive with archive at destination root (no nested folder):
 
 ```powershell
 pwsh -File .\Run.ps1 -NonInteractive -DestinationName ""
+```
+
+Non-interactive with custom archive naming expression:
+
+```powershell
+pwsh -File .\Run.ps1 -NonInteractive -NamePattern "backup-{DestinationName}-{Now()}"
 ```
 
 Unattended run with explicit values:

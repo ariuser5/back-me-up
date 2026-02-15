@@ -20,6 +20,11 @@ Optional nested folder name under BackupLocation.
 When omitted, defaults to the source folder name.
 When provided as empty or whitespace, no nested folder is used.
 
+.PARAMETER NamePattern
+Expression used to build output archive file name.
+Supports placeholders: {DestinationName}, {SourceName}, {Now()}.
+When omitted, defaults to backup-{DestinationName}-{Now()}.
+
 .PARAMETER ExcludePattern
 Wildcard patterns excluded from the archive.
 
@@ -50,6 +55,9 @@ $pw = Read-Host "Archive password" -AsSecureString
 
 .EXAMPLE
 .\Run.ps1 -NonInteractive -DestinationName ""
+
+.EXAMPLE
+.\Run.ps1 -NonInteractive -NamePattern "backup-{DestinationName}-{Now()}"
 #>
 
 [CmdletBinding()]
@@ -63,6 +71,9 @@ param(
     [Parameter()]
     [AllowEmptyString()]
     [string]$DestinationName,
+
+    [Parameter()]
+    [string]$NamePattern,
 
     [Parameter()]
     [string[]]$ExcludePattern,
@@ -253,6 +264,34 @@ function Get-LocalStagingRoot {
     return $stagingRoot
 }
 
+function Resolve-ArchiveFileNameFromExpression {
+    param(
+        [Parameter(Mandatory = $true)][string]$Expression,
+        [Parameter(Mandatory = $true)][string]$DestinationName,
+        [Parameter(Mandatory = $true)][string]$SourceName
+    )
+
+    $timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    $resolvedName = $Expression
+    $resolvedName = $resolvedName.Replace('{DestinationName}', $DestinationName)
+    $resolvedName = $resolvedName.Replace('{SourceName}', $SourceName)
+    $resolvedName = $resolvedName.Replace('{Now()}', $timestamp)
+
+    $invalidChars = [System.IO.Path]::GetInvalidFileNameChars()
+    $invalidCharsPattern = '[{0}]' -f [regex]::Escape(($invalidChars -join ''))
+    $resolvedName = ($resolvedName -replace $invalidCharsPattern, '_').Trim()
+
+    if ([string]::IsNullOrWhiteSpace($resolvedName)) {
+        throw 'NamePattern resolved to an empty archive file name.'
+    }
+
+    if (-not $resolvedName.EndsWith('.7z', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $resolvedName = "$resolvedName.7z"
+    }
+
+    return $resolvedName
+}
+
 $scriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 $defaultSourceRoot = Get-BackupDefaultSourcePath -RepoRoot $scriptRoot
 $scriptsDir = Join-Path -Path $scriptRoot -ChildPath 'scripts'
@@ -288,10 +327,12 @@ if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
 $defaultSourcePath = $defaultSourceRoot
 $defaultBackupLocation = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups'
 $defaultExcludePattern = @('[[]no-sync[]]*', '.ctrl*')
+$defaultNamePattern = 'backup-{DestinationName}-{Now()}'
 
 $sourceFromConfig = if (Test-ConfigProperty -Config $config -Name 'SourcePath') { [string]$config.SourcePath } else { $null }
 $backupLocationFromConfig = if (Test-ConfigProperty -Config $config -Name 'BackupLocation') { [string]$config.BackupLocation } else { $null }
 $excludeFromConfig = Get-ConfigStringArray -Config $config -Name 'ExcludePattern'
+$namePatternFromConfig = if (Test-ConfigProperty -Config $config -Name 'NamePattern') { [string]$config.NamePattern } else { $null }
 
 $encryptFromConfig = $false
 $encryptConfigSpecified = $false
@@ -303,6 +344,7 @@ if (Test-ConfigProperty -Config $config -Name 'EncryptionEnabled') {
 $sourcePathSpecified = $PSBoundParameters.ContainsKey('SourcePath')
 $backupLocationSpecified = $PSBoundParameters.ContainsKey('BackupLocation')
 $destinationNameSpecified = $PSBoundParameters.ContainsKey('DestinationName')
+$namePatternSpecified = $PSBoundParameters.ContainsKey('NamePattern')
 $excludePatternSpecified = $PSBoundParameters.ContainsKey('ExcludePattern')
 $encryptSpecified = $PSBoundParameters.ContainsKey('Encrypt')
 $passwordSpecified = $PSBoundParameters.ContainsKey('ArchivePassword')
@@ -314,6 +356,7 @@ if ($passwordSpecified -and -not $encryptSpecified) {
 $resolvedSourcePath = if ($sourcePathSpecified) { $SourcePath } elseif (-not [string]::IsNullOrWhiteSpace($sourceFromConfig)) { $sourceFromConfig } else { $defaultSourcePath }
 $resolvedBackupLocation = if ($backupLocationSpecified) { $BackupLocation } elseif (-not [string]::IsNullOrWhiteSpace($backupLocationFromConfig)) { $backupLocationFromConfig } else { $defaultBackupLocation }
 $resolvedExcludePattern = if ($excludePatternSpecified) { @($ExcludePattern) } elseif ($excludeFromConfig.Count -gt 0) { @($excludeFromConfig) } else { @($defaultExcludePattern) }
+$resolvedNamePattern = if ($namePatternSpecified) { $NamePattern } elseif (-not [string]::IsNullOrWhiteSpace($namePatternFromConfig)) { $namePatternFromConfig } else { $defaultNamePattern }
 $useEncryption = if ($encryptSpecified) { [bool]$Encrypt } elseif ($encryptConfigSpecified) { $encryptFromConfig } else { $false }
 
 if (-not $NonInteractive) {
@@ -382,6 +425,9 @@ else {
     $resolvedDestinationFolderName = $resolvedDestinationFolderName.Trim()
 }
 
+$archiveNameDestinationToken = if ([string]::IsNullOrWhiteSpace($resolvedDestinationFolderName)) { $safeSourceName } else { $resolvedDestinationFolderName }
+$resolvedArchiveFileName = Resolve-ArchiveFileNameFromExpression -Expression $resolvedNamePattern -DestinationName $archiveNameDestinationToken -SourceName $safeSourceName
+
 $stagingRoot = $null
 if ($destination.Provider -eq 'Rclone') {
     $stagingRoot = Get-LocalStagingRoot
@@ -391,6 +437,7 @@ $archiveParams = @{
     SourcePath = $resolvedSourcePath
     OutputRoot = if ($destination.Provider -eq 'Local') { $destination.Root } else { $stagingRoot }
     DestinationFolderName = $resolvedDestinationFolderName
+    ArchiveFileName = $resolvedArchiveFileName
     ArchivePrefix = $archivePrefix
     CompressionLevel = 9
     ExcludePattern = @($resolvedExcludePattern)
