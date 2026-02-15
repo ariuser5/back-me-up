@@ -90,7 +90,7 @@ if (-not [string]::IsNullOrWhiteSpace($configDir)) {
 $config = [ordered]@{
     SourcePath = $defaultSourcePath
     BackupLocation = (Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups')
-    ExcludePattern = @('[[]no-sync[]]*', 'back-me-up*', '.ctrl*', 'System Volume Information*', '$RECYCLE.BIN*')
+    ExcludePattern = @('back-me-up*', '.ctrl*', 'System Volume Information*', '$RECYCLE.BIN*', '[[]no-sync[]]*')
     EncryptionEnabled = $false
 }
 

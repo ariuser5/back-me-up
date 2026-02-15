@@ -38,7 +38,7 @@ Default generated config:
 {
   "SourcePath": "<parent-of-.ctrl>",
   "BackupLocation": "%LOCALAPPDATA%\\PCOps\\Backups",
-  "ExcludePattern": ["[[]no-sync[]]*", "back-me-up*", ".ctrl*", "System Volume Information*", "$RECYCLE.BIN*"],
+  "ExcludePattern": ["back-me-up*", ".ctrl*", "System Volume Information*", "$RECYCLE.BIN*", "[[]no-sync[]]*"],
   "EncryptionEnabled": false
 }
 ```
