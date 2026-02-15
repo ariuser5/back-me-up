@@ -26,7 +26,7 @@ Run backup (interactive by default):
 pwsh -File .\Run.ps1
 ```
 
-In interactive mode, values are loaded from config and prompted one-by-one. You can press Enter to keep each value or edit it before continuing.
+In interactive mode, values are loaded from config and prompted one-by-one. You can press Enter to keep each value or edit it before continuing. Any value provided explicitly as a parameter is not prompted again.
 
 ## Config file
 

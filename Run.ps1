@@ -259,6 +259,9 @@ if (Test-ConfigProperty -Config $config -Name 'EncryptionEnabled') {
     $encryptConfigSpecified = $true
 }
 
+$sourcePathSpecified = $PSBoundParameters.ContainsKey('SourcePath')
+$backupLocationSpecified = $PSBoundParameters.ContainsKey('BackupLocation')
+$excludePatternSpecified = $PSBoundParameters.ContainsKey('ExcludePattern')
 $encryptSpecified = $PSBoundParameters.ContainsKey('Encrypt')
 $passwordSpecified = $PSBoundParameters.ContainsKey('ArchivePassword')
 if ($passwordSpecified -and -not $encryptSpecified) {
@@ -281,17 +284,28 @@ if ($Strict) {
     $useEncryption = [bool]$Encrypt
 }
 else {
-    $resolvedSourcePath = if ($PSBoundParameters.ContainsKey('SourcePath')) { $SourcePath } elseif (-not [string]::IsNullOrWhiteSpace($sourceFromConfig)) { $sourceFromConfig } else { $defaultSourcePath }
-    $resolvedBackupLocation = if ($PSBoundParameters.ContainsKey('BackupLocation')) { $BackupLocation } elseif (-not [string]::IsNullOrWhiteSpace($backupLocationFromConfig)) { $backupLocationFromConfig } else { $defaultBackupLocation }
-    $resolvedExcludePattern = if ($PSBoundParameters.ContainsKey('ExcludePattern')) { @($ExcludePattern) } elseif ($excludeFromConfig.Count -gt 0) { @($excludeFromConfig) } else { @($defaultExcludePattern) }
+    $resolvedSourcePath = if ($sourcePathSpecified) { $SourcePath } elseif (-not [string]::IsNullOrWhiteSpace($sourceFromConfig)) { $sourceFromConfig } else { $defaultSourcePath }
+    $resolvedBackupLocation = if ($backupLocationSpecified) { $BackupLocation } elseif (-not [string]::IsNullOrWhiteSpace($backupLocationFromConfig)) { $backupLocationFromConfig } else { $defaultBackupLocation }
+    $resolvedExcludePattern = if ($excludePatternSpecified) { @($ExcludePattern) } elseif ($excludeFromConfig.Count -gt 0) { @($excludeFromConfig) } else { @($defaultExcludePattern) }
     $useEncryption = if ($encryptSpecified) { [bool]$Encrypt } elseif ($encryptConfigSpecified) { $encryptFromConfig } else { $false }
 }
 
 if (-not $NonInteractive) {
-    $resolvedSourcePath = Read-ResolvedTextValue -Label 'SourcePath' -CurrentValue $resolvedSourcePath
-    $resolvedBackupLocation = Read-ResolvedTextValue -Label 'BackupLocation' -CurrentValue $resolvedBackupLocation
-    $resolvedExcludePattern = Read-ResolvedExcludePattern -CurrentPatterns $resolvedExcludePattern
-    $useEncryption = Read-ResolvedEncryptionChoice -CurrentValue $useEncryption
+    if (-not $sourcePathSpecified) {
+        $resolvedSourcePath = Read-ResolvedTextValue -Label 'SourcePath' -CurrentValue $resolvedSourcePath
+    }
+
+    if (-not $backupLocationSpecified) {
+        $resolvedBackupLocation = Read-ResolvedTextValue -Label 'BackupLocation' -CurrentValue $resolvedBackupLocation
+    }
+
+    if (-not $excludePatternSpecified) {
+        $resolvedExcludePattern = Read-ResolvedExcludePattern -CurrentPatterns $resolvedExcludePattern
+    }
+
+    if (-not $encryptSpecified) {
+        $useEncryption = Read-ResolvedEncryptionChoice -CurrentValue $useEncryption
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($resolvedSourcePath)) {
