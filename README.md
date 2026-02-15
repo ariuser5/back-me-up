@@ -67,7 +67,7 @@ Default: `backup-{SourceName}-{Now()}`
 - Default: interactive prompts (config-backed values shown and editable).
 - `-NonInteractive`: no prompts; resolves values from params, then config, then defaults.
 
-Encryption is opt-in only (off by default). If enabled interactively without `ArchivePassword`, the script prompts for password and confirmation.
+Encryption is opt-in only (off by default). If enabled interactively without `Password`, the script prompts for password and confirmation.
 
 ## Scripts
 
@@ -124,5 +124,5 @@ Unattended run with explicit values:
 
 ```powershell
 $pw = Read-Host "Archive password" -AsSecureString
-pwsh -File .\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
+pwsh -File .\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -Password $pw
 ```

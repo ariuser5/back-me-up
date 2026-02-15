@@ -31,7 +31,7 @@ Wildcard patterns excluded from the archive.
 .PARAMETER Encrypt
 Enables archive encryption.
 
-.PARAMETER ArchivePassword
+.PARAMETER Password
 SecureString password used when -Encrypt is enabled.
 
 .PARAMETER NonInteractive
@@ -48,7 +48,7 @@ Path to config JSON. Defaults to backup.config.json in the repo root.
 
 .EXAMPLE
 $pw = Read-Host "Archive password" -AsSecureString
-.\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
+.\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -Password $pw
 
 .EXAMPLE
 .\Run.ps1 -NonInteractive -DestinationName "my-custom-name-I-wish"
@@ -82,7 +82,7 @@ param(
     [switch]$Encrypt,
 
     [Parameter()]
-    [System.Security.SecureString]$ArchivePassword,
+    [System.Security.SecureString]$Password,
 
     [Parameter()]
     [switch]$NonInteractive,
@@ -347,7 +347,7 @@ $destinationNameSpecified = $PSBoundParameters.ContainsKey('DestinationName')
 $namePatternSpecified = $PSBoundParameters.ContainsKey('NamePattern')
 $excludePatternSpecified = $PSBoundParameters.ContainsKey('ExcludePattern')
 $encryptSpecified = $PSBoundParameters.ContainsKey('Encrypt')
-$passwordSpecified = $PSBoundParameters.ContainsKey('ArchivePassword')
+$passwordSpecified = $PSBoundParameters.ContainsKey('Password')
 if ($passwordSpecified -and -not $encryptSpecified) {
     $Encrypt = $true
     $encryptSpecified = $true
@@ -404,15 +404,15 @@ else {
 
 if ($useEncryption -and -not $passwordSpecified) {
     if ($NonInteractive) {
-        throw 'Encryption is enabled but ArchivePassword was not provided in -NonInteractive mode.'
+        throw 'Encryption is enabled but Password was not provided in -NonInteractive mode.'
     }
 
-    $ArchivePassword = Read-ArchivePasswordFromPrompt
+    $Password = Read-ArchivePasswordFromPrompt
     $passwordSpecified = $true
 }
 
 if (-not $useEncryption -and $passwordSpecified) {
-    throw 'ArchivePassword was provided but -Encrypt is not enabled.'
+    throw 'Password was provided but -Encrypt is not enabled.'
 }
 
 $safeSourceName = Get-BackupSafeFolderName -Path $resolvedSourcePath
@@ -445,7 +445,7 @@ $archiveParams = @{
 }
 
 if ($useEncryption) {
-    $archiveParams.ArchivePassword = $ArchivePassword
+    $archiveParams.ArchivePassword = $Password
 }
 
 
