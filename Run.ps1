@@ -12,7 +12,8 @@ Use -NonInteractive for unattended execution.
 Path to the folder/drive that will be archived.
 
 .PARAMETER BackupLocation
-Local output root where archives are written.
+Backup destination root. Supports local paths (for example C:\Backups) and
+rclone remotes (for example gdrive:Documents/some/path).
 
 .PARAMETER ExcludePattern
 Wildcard patterns excluded from the archive.
@@ -201,11 +202,48 @@ function Read-ArchivePasswordFromPrompt {
     return $first
 }
 
+function Get-BackupDestination {
+    param([Parameter(Mandatory = $true)][string]$Location)
+
+    if ([string]::IsNullOrWhiteSpace($Location)) {
+        throw 'BackupLocation cannot be empty.'
+    }
+
+    $firstColonIndex = $Location.IndexOf(':')
+    if ($firstColonIndex -le 0) {
+        return [pscustomobject]@{
+            Provider = 'Local'
+            Root = $Location
+        }
+    }
+
+    $prefix = $Location.Substring(0, $firstColonIndex)
+    if ($prefix.Length -eq 1 -and $prefix -match '^[A-Za-z]$') {
+        return [pscustomobject]@{
+            Provider = 'Local'
+            Root = $Location
+        }
+    }
+
+    return [pscustomobject]@{
+        Provider = 'Rclone'
+        Root = $Location
+    }
+}
+
+function Get-LocalStagingRoot {
+    $sessionId = [guid]::NewGuid().ToString('N')
+    $stagingRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("back-me-up-{0}" -f $sessionId)
+    New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+    return $stagingRoot
+}
+
 $scriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 $defaultSourceRoot = Get-BackupDefaultSourcePath -RepoRoot $scriptRoot
 $scriptsDir = Join-Path -Path $scriptRoot -ChildPath 'scripts'
 $commonScriptPath = Join-Path -Path $scriptsDir -ChildPath 'Common.ps1'
 $archiveScriptPath = Join-Path -Path $scriptsDir -ChildPath 'Archive-Local.ps1'
+$rcloneUploadScriptPath = Join-Path -Path $scriptsDir -ChildPath 'Upload-Rclone.ps1'
 
 foreach ($required in @($commonScriptPath, $archiveScriptPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -292,7 +330,18 @@ if (-not (Test-Path -LiteralPath $resolvedSourcePath -PathType Container)) {
     throw "Source path '$resolvedSourcePath' does not exist or is not a directory."
 }
 
-New-Item -ItemType Directory -Path $resolvedBackupLocation -Force | Out-Null
+$destination = Get-BackupDestination -Location $resolvedBackupLocation
+if ($destination.Provider -eq 'Local') {
+    New-Item -ItemType Directory -Path $destination.Root -Force | Out-Null
+}
+elseif ($destination.Provider -eq 'Rclone') {
+    if (-not (Test-Path -LiteralPath $rcloneUploadScriptPath -PathType Leaf)) {
+        throw "Required upload script not found at '$rcloneUploadScriptPath'."
+    }
+}
+else {
+    throw "Unsupported backup destination provider '$($destination.Provider)'."
+}
 
 if ($useEncryption -and -not $passwordSpecified) {
     if ($NonInteractive) {
@@ -310,9 +359,14 @@ if (-not $useEncryption -and $passwordSpecified) {
 $safeSourceName = Get-BackupSafeFolderName -Path $resolvedSourcePath
 $archivePrefix = "backup-$safeSourceName"
 
+$stagingRoot = $null
+if ($destination.Provider -eq 'Rclone') {
+    $stagingRoot = Get-LocalStagingRoot
+}
+
 $archiveParams = @{
     SourcePath = $resolvedSourcePath
-    OutputRoot = $resolvedBackupLocation
+    OutputRoot = if ($destination.Provider -eq 'Local') { $destination.Root } else { $stagingRoot }
     ArchivePrefix = $archivePrefix
     CompressionLevel = 9
     ExcludePattern = @($resolvedExcludePattern)
@@ -323,9 +377,25 @@ if ($useEncryption) {
     $archiveParams.ArchivePassword = $ArchivePassword
 }
 
-$archivePath = (& $archiveScriptPath @archiveParams | Select-Object -Last 1)
-if ([string]::IsNullOrWhiteSpace($archivePath)) {
-    throw 'Archive script did not return an archive path.'
+
+try {
+    $archivePath = (& $archiveScriptPath @archiveParams | Select-Object -Last 1)
+    if ([string]::IsNullOrWhiteSpace($archivePath)) {
+        throw 'Archive script did not return an archive path.'
+    }
+
+    if ($destination.Provider -eq 'Rclone') {
+        $localArchivePath = $archivePath
+        $archivePath = (& $rcloneUploadScriptPath -ArchivePath $localArchivePath -RemoteRoot $destination.Root -ContainerName $safeSourceName -Verbose:($VerbosePreference -ne 'SilentlyContinue') | Select-Object -Last 1)
+        if ([string]::IsNullOrWhiteSpace($archivePath)) {
+            throw 'Rclone upload script did not return a remote archive path.'
+        }
+    }
+}
+finally {
+    if (-not [string]::IsNullOrWhiteSpace($stagingRoot) -and (Test-Path -LiteralPath $stagingRoot -PathType Container)) {
+        Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-BackupLog -Level INFO -Message "Backup completed. Archive created at '$archivePath'."

@@ -4,7 +4,7 @@ This repository is intended to live inside the location you want to back up regu
 
 ## Repository scope
 
-The repo provides a PowerShell workflow that creates local `.7z` backups from a configured source path.
+The repo provides a PowerShell workflow that creates `.7z` backups from a configured source path and stores them either locally or in an rclone remote.
 
 Recommended layout:
 1. Create a `.ctrl` folder in the root of the directory you want to back up.
@@ -38,12 +38,16 @@ Default generated config:
 {
   "SourcePath": "<parent-of-.ctrl>",
   "BackupLocation": "%LOCALAPPDATA%\\PCOps\\Backups",
-  "ExcludePattern": ["[[]no-sync[]]*", "back-me-up*",".ctrl*", "System Volume Information*", "$RECYCLE.BIN*"],
+  "ExcludePattern": ["[[]no-sync[]]*", "back-me-up*", ".ctrl*", "System Volume Information*", "$RECYCLE.BIN*"],
   "EncryptionEnabled": false
 }
 ```
 
 In this layout, `SourcePath` defaults to the parent directory of `.ctrl`.
+
+`BackupLocation` supports:
+- Local paths, for example `C:\Backups`
+- rclone remotes, for example `gdrive:Documents/some/path`
 
 ## Interactivity model
 
@@ -57,11 +61,13 @@ Encryption is opt-in only (off by default). If enabled interactively without `Ar
 - `Run.ps1`: main entrypoint.
 - `Initialize.ps1`: initializes local config for this clone.
 - `scripts/Archive-Local.ps1`: archive creation (encrypted only when password provided).
+- `scripts/Upload-Rclone.ps1`: upload archives to rclone remotes.
 - `scripts/Common.ps1`: shared helpers.
 
 ## Prerequisites
 
 - `7z` (7-Zip) available in `PATH` or standard install path.
+- `rclone` in `PATH` when `BackupLocation` uses a remote format like `name:path`.
 
 ## Examples
 
@@ -75,6 +81,12 @@ Non-interactive with config/default fallback:
 
 ```powershell
 pwsh -File .\Run.ps1 -NonInteractive
+```
+
+Non-interactive with rclone remote destination:
+
+```powershell
+pwsh -File .\Run.ps1 -NonInteractive -BackupLocation "gdrive:Documents/some/path"
 ```
 
 Unattended run with explicit values:
