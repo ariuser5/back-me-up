@@ -49,7 +49,6 @@ In this layout, `SourcePath` defaults to the parent directory of `.ctrl`.
 
 - Default: interactive prompts (config-backed values shown and editable).
 - `-NonInteractive`: no prompts; resolves values from params, then config, then defaults.
-- `-NonInteractive -Strict`: requires explicit `SourcePath`, `BackupLocation`, `ExcludePattern`, and `Encrypt` parameters. Missing imposed params fail fast.
 
 Encryption is opt-in only (off by default). If enabled interactively without `ArchivePassword`, the script prompts for password and confirmation.
 
@@ -78,9 +77,9 @@ Non-interactive with config/default fallback:
 pwsh -File .\Run.ps1 -NonInteractive
 ```
 
-Strict unattended run with explicit values:
+Unattended run with explicit values:
 
 ```powershell
 $pw = Read-Host "Archive password" -AsSecureString
-pwsh -File .\Run.ps1 -NonInteractive -Strict -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
+pwsh -File .\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
 ```

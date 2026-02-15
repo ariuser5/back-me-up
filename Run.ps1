@@ -6,8 +6,7 @@ Runs the local backup workflow.
 Main entrypoint for creating a local backup archive. By default it runs interactively,
 showing values loaded from config and allowing confirmation or edits before execution.
 
-Use -NonInteractive for unattended execution. Add -Strict to require explicit values
-for imposed parameters rather than falling back to config/defaults.
+Use -NonInteractive for unattended execution.
 
 .PARAMETER SourcePath
 Path to the folder/drive that will be archived.
@@ -27,10 +26,6 @@ SecureString password used when -Encrypt is enabled.
 .PARAMETER NonInteractive
 Skips prompts and resolves values from explicit params, config, and defaults.
 
-.PARAMETER Strict
-Only valid with -NonInteractive. Requires explicit values for SourcePath,
-BackupLocation, ExcludePattern, and Encrypt.
-
 .PARAMETER ConfigPath
 Path to config JSON. Defaults to backup.config.json in the repo root.
 
@@ -42,7 +37,7 @@ Path to config JSON. Defaults to backup.config.json in the repo root.
 
 .EXAMPLE
 $pw = Read-Host "Archive password" -AsSecureString
-.\Run.ps1 -NonInteractive -Strict -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
+.\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -ArchivePassword $pw
 #>
 
 [CmdletBinding()]
@@ -64,9 +59,6 @@ param(
 
     [Parameter()]
     [switch]$NonInteractive,
-
-    [Parameter()]
-    [switch]$Strict,
 
     [Parameter()]
     [string]$ConfigPath
@@ -223,10 +215,6 @@ foreach ($required in @($commonScriptPath, $archiveScriptPath)) {
 
 . $commonScriptPath
 
-if ($Strict -and -not $NonInteractive) {
-    throw '-Strict can only be used together with -NonInteractive.'
-}
-
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path -Path $scriptRoot -ChildPath 'backup.config.json'
 }
@@ -269,26 +257,10 @@ if ($passwordSpecified -and -not $encryptSpecified) {
     $encryptSpecified = $true
 }
 
-if ($Strict) {
-    foreach ($requiredParam in @('SourcePath', 'BackupLocation', 'ExcludePattern', 'Encrypt')) {
-        if (-not $PSBoundParameters.ContainsKey($requiredParam)) {
-            throw "Missing required parameter '$requiredParam' in -Strict mode."
-        }
-    }
-}
-
-if ($Strict) {
-    $resolvedSourcePath = $SourcePath
-    $resolvedBackupLocation = $BackupLocation
-    $resolvedExcludePattern = @($ExcludePattern)
-    $useEncryption = [bool]$Encrypt
-}
-else {
-    $resolvedSourcePath = if ($sourcePathSpecified) { $SourcePath } elseif (-not [string]::IsNullOrWhiteSpace($sourceFromConfig)) { $sourceFromConfig } else { $defaultSourcePath }
-    $resolvedBackupLocation = if ($backupLocationSpecified) { $BackupLocation } elseif (-not [string]::IsNullOrWhiteSpace($backupLocationFromConfig)) { $backupLocationFromConfig } else { $defaultBackupLocation }
-    $resolvedExcludePattern = if ($excludePatternSpecified) { @($ExcludePattern) } elseif ($excludeFromConfig.Count -gt 0) { @($excludeFromConfig) } else { @($defaultExcludePattern) }
-    $useEncryption = if ($encryptSpecified) { [bool]$Encrypt } elseif ($encryptConfigSpecified) { $encryptFromConfig } else { $false }
-}
+$resolvedSourcePath = if ($sourcePathSpecified) { $SourcePath } elseif (-not [string]::IsNullOrWhiteSpace($sourceFromConfig)) { $sourceFromConfig } else { $defaultSourcePath }
+$resolvedBackupLocation = if ($backupLocationSpecified) { $BackupLocation } elseif (-not [string]::IsNullOrWhiteSpace($backupLocationFromConfig)) { $backupLocationFromConfig } else { $defaultBackupLocation }
+$resolvedExcludePattern = if ($excludePatternSpecified) { @($ExcludePattern) } elseif ($excludeFromConfig.Count -gt 0) { @($excludeFromConfig) } else { @($defaultExcludePattern) }
+$useEncryption = if ($encryptSpecified) { [bool]$Encrypt } elseif ($encryptConfigSpecified) { $encryptFromConfig } else { $false }
 
 if (-not $NonInteractive) {
     if (-not $sourcePathSpecified) {
