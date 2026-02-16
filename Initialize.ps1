@@ -90,6 +90,12 @@ if (-not [string]::IsNullOrWhiteSpace($configDir)) {
 $config = [ordered]@{
     SourcePath = $defaultSourcePath
     BackupLocation = (Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups')
+    PasswordManager = ''
+    PasswordManagers = [ordered]@{
+        Bitwarden = [ordered]@{
+            ItemName = ''
+        }
+    }
     NamePattern = 'backup-{SourceName}-{Now()}'
     ExcludePattern = @('back-me-up*', '.ctrl*', 'System Volume Information*', '$RECYCLE.BIN*', '[[]no-sync[]]*')
     EncryptionEnabled = $false

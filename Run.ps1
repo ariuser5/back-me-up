@@ -23,7 +23,7 @@ When provided as empty or whitespace, no nested folder is used.
 .PARAMETER NamePattern
 Expression used to build output archive file name.
 Supports placeholders: {DestinationName}, {SourceName}, {Now()}.
-When omitted, defaults to backup-{DestinationName}-{Now()}.
+When omitted, defaults to backup-{SourceName}-{Now()}.
 
 .PARAMETER ExcludePattern
 Wildcard patterns excluded from the archive.
@@ -33,6 +33,10 @@ Enables archive encryption.
 
 .PARAMETER Password
 SecureString password used when -Encrypt is enabled.
+
+.PARAMETER PasswordManager
+Password manager provider name. Empty means disabled.
+Supported value: Bitwarden.
 
 .PARAMETER NonInteractive
 Skips prompts and resolves values from explicit params, config, and defaults.
@@ -49,6 +53,9 @@ Path to config JSON. Defaults to backup.config.json in the repo root.
 .EXAMPLE
 $pw = Read-Host "Archive password" -AsSecureString
 .\Run.ps1 -NonInteractive -SourcePath "S:\" -BackupLocation "D:\Backups" -ExcludePattern "[[]no-sync[]]*" -Encrypt -Password $pw
+
+.EXAMPLE
+.\Run.ps1 -NonInteractive -Encrypt -PasswordManager "Bitwarden"
 
 .EXAMPLE
 .\Run.ps1 -NonInteractive -DestinationName "my-custom-name-I-wish"
@@ -83,6 +90,9 @@ param(
 
     [Parameter()]
     [System.Security.SecureString]$Password,
+
+    [Parameter()]
+    [string]$PasswordManager,
 
     [Parameter()]
     [switch]$NonInteractive,
@@ -137,6 +147,70 @@ function Get-ConfigStringArray {
 
     $values = @($Config.$Name)
     return @($values | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Convert-ToEnvSegment {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    $value = $Text.ToUpperInvariant()
+    $value = ($value -replace '[^A-Z0-9]', '_').Trim('_')
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return 'VALUE'
+    }
+
+    return $value
+}
+
+function Set-PasswordManagerEnvironmentVariables {
+    param(
+        [Parameter(Mandatory = $true)][object]$Config,
+        [Parameter()][string]$RootKey = 'PasswordManagers',
+        [Parameter()][string]$Prefix = 'BACKMEUP_PM'
+    )
+
+    if (-not (Test-ConfigProperty -Config $Config -Name $RootKey)) {
+        return
+    }
+
+    $root = $Config.$RootKey
+    if ($null -eq $root) {
+        return
+    }
+
+    function Set-NestedEnvValue {
+        param(
+            [Parameter(Mandatory = $true)][object]$Node,
+            [string[]]$PathSegments = @(),
+            [Parameter(Mandatory = $true)][string]$EnvPrefix
+        )
+
+        if ($null -eq $Node) {
+            return
+        }
+
+        $properties = @()
+        if (($Node -isnot [string]) -and ($Node.PSObject -ne $null)) {
+            $properties = @($Node.PSObject.Properties)
+        }
+
+        if ($properties.Count -gt 0) {
+            foreach ($property in $properties) {
+                Set-NestedEnvValue -Node $property.Value -PathSegments ($PathSegments + $property.Name) -EnvPrefix $EnvPrefix
+            }
+            return
+        }
+
+        if (@($PathSegments).Count -eq 0) {
+            return
+        }
+
+        $envSegments = @($EnvPrefix) + @($PathSegments | ForEach-Object { Convert-ToEnvSegment -Text [string]$_ })
+        $envName = ($envSegments -join '_')
+        $envValue = if ($null -eq $Node) { '' } else { [string]$Node }
+        [Environment]::SetEnvironmentVariable($envName, $envValue, 'Process')
+    }
+
+    Set-NestedEnvValue -Node $root -PathSegments @() -EnvPrefix $Prefix
 }
 
 function Read-ResolvedTextValue {
@@ -292,6 +366,154 @@ function Resolve-ArchiveFileNameFromExpression {
     return $resolvedName
 }
 
+function Resolve-PasswordManagerProvider {
+    param([string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return 'None'
+    }
+
+    $normalized = $Name.Trim()
+    if ([string]::Equals($normalized, 'Bitwarden', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return 'Bitwarden'
+    }
+
+    throw "Unsupported PasswordManager '$Name'. Supported values: Bitwarden."
+}
+
+function Get-PasswordManagerScriptPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Provider,
+        [Parameter(Mandatory = $true)][string]$ScriptsDirectory
+    )
+
+    $scriptName = "Get-PasswordFrom{0}.ps1" -f $Provider
+    $path = Join-Path -Path $ScriptsDirectory -ChildPath $scriptName
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Password manager provider script not found at '$path'."
+    }
+
+    return $path
+}
+
+function Resolve-InteractivePasswordSourceChoice {
+    param([bool]$DefaultToManager)
+
+    try {
+        $choices = [System.Management.Automation.Host.ChoiceDescription[]]@(
+            (New-Object System.Management.Automation.Host.ChoiceDescription '&Manual password', 'Type the password manually.'),
+            (New-Object System.Management.Automation.Host.ChoiceDescription '&Password manager', 'Retrieve the password from a configured password manager.'),
+            (New-Object System.Management.Automation.Host.ChoiceDescription '&Cancel', 'Stop the backup run.')
+        )
+
+        $defaultChoice = if ($DefaultToManager) { 1 } else { 0 }
+        $selection = $Host.UI.PromptForChoice(
+            'Archive password source',
+            'How do you want to provide the archive password?',
+            $choices,
+            $defaultChoice
+        )
+
+        switch ($selection) {
+            0 { return 'Manual' }
+            1 { return 'Manager' }
+            default { return 'Cancel' }
+        }
+    }
+    catch {
+        while ($true) {
+            $inputValue = Read-Host 'Password source: enter M (manual), P (password manager), or C (cancel)'
+            $normalized = if ($null -eq $inputValue) { '' } else { $inputValue.Trim().ToUpperInvariant() }
+
+            switch ($normalized) {
+                'M' { return 'Manual' }
+                'P' { return 'Manager' }
+                'C' { return 'Cancel' }
+                default { }
+            }
+        }
+    }
+}
+
+function Read-InteractivePasswordManagerProvider {
+    param([string]$CurrentProviderName)
+
+    while ($true) {
+        $defaultProvider = if ([string]::IsNullOrWhiteSpace($CurrentProviderName)) { 'Bitwarden' } else { $CurrentProviderName.Trim() }
+        $inputValue = Read-Host "PasswordManager provider [$defaultProvider]"
+        $candidate = if ([string]::IsNullOrWhiteSpace($inputValue)) { $defaultProvider } else { $inputValue.Trim() }
+
+        try {
+            return Resolve-PasswordManagerProvider -Name $candidate
+        }
+        catch {
+            Write-BackupLog -Level WARNING -Message $_.Exception.Message
+        }
+    }
+}
+
+function Resolve-InteractivePasswordManagerFailureAction {
+    param(
+        [Parameter(Mandatory = $true)][string]$Provider,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+
+    Write-BackupLog -Level WARNING -Message "Password retrieval from $Provider failed. $FailureMessage"
+
+    try {
+        $choices = [System.Management.Automation.Host.ChoiceDescription[]]@(
+            (New-Object System.Management.Automation.Host.ChoiceDescription '&Enter password', 'Provide an explicit password now.'),
+            (New-Object System.Management.Automation.Host.ChoiceDescription '&No encryption', 'Continue without archive encryption.'),
+            (New-Object System.Management.Automation.Host.ChoiceDescription '&Cancel', 'Stop the backup run.')
+        )
+
+        $selection = $Host.UI.PromptForChoice(
+            'Password retrieval failed',
+            "Unable to retrieve password from $Provider. Choose how to continue.",
+            $choices,
+            0
+        )
+
+        switch ($selection) {
+            0 { return 'EnterPassword' }
+            1 { return 'NoEncryption' }
+            default { return 'Cancel' }
+        }
+    }
+    catch {
+        while ($true) {
+            $inputValue = Read-Host 'Password retrieval failed. Enter P (provide password), N (no encryption), or C (cancel)'
+            $normalized = if ($null -eq $inputValue) { '' } else { $inputValue.Trim().ToUpperInvariant() }
+
+            switch ($normalized) {
+                'P' { return 'EnterPassword' }
+                'N' { return 'NoEncryption' }
+                'C' { return 'Cancel' }
+                default { }
+            }
+        }
+    }
+}
+
+function Get-PasswordFromManager {
+    param(
+        [Parameter(Mandatory = $true)][string]$Provider,
+        [Parameter(Mandatory = $true)][string]$ScriptsDirectory,
+        [Parameter(Mandatory = $true)][bool]$NonInteractiveExecution,
+        [Parameter(Mandatory = $true)][bool]$VerboseEnabled
+    )
+
+    $providerScriptPath = Get-PasswordManagerScriptPath -Provider $Provider -ScriptsDirectory $ScriptsDirectory
+    $result = & $providerScriptPath -NonInteractive:$NonInteractiveExecution -Verbose:$VerboseEnabled
+    $secure = $result | Select-Object -Last 1
+
+    if ($secure -isnot [System.Security.SecureString]) {
+        throw "$Provider provider did not return a secure password value."
+    }
+
+    return $secure
+}
+
 $scriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 $defaultSourceRoot = Get-BackupDefaultSourcePath -RepoRoot $scriptRoot
 $scriptsDir = Join-Path -Path $scriptRoot -ChildPath 'scripts'
@@ -311,6 +533,8 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path -Path $scriptRoot -ChildPath 'backup.config.json'
 }
 
+[Environment]::SetEnvironmentVariable('BACKMEUP_CONFIG_PATH', $ConfigPath, 'Process')
+
 $config = $null
 if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
     try {
@@ -327,10 +551,11 @@ if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
 $defaultSourcePath = $defaultSourceRoot
 $defaultBackupLocation = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'PCOps\Backups'
 $defaultExcludePattern = @('[[]no-sync[]]*', '.ctrl*')
-$defaultNamePattern = 'backup-{DestinationName}-{Now()}'
+$defaultNamePattern = 'backup-{SourceName}-{Now()}'
 
 $sourceFromConfig = if (Test-ConfigProperty -Config $config -Name 'SourcePath') { [string]$config.SourcePath } else { $null }
 $backupLocationFromConfig = if (Test-ConfigProperty -Config $config -Name 'BackupLocation') { [string]$config.BackupLocation } else { $null }
+$passwordManagerFromConfig = if (Test-ConfigProperty -Config $config -Name 'PasswordManager') { [string]$config.PasswordManager } else { $null }
 $excludeFromConfig = Get-ConfigStringArray -Config $config -Name 'ExcludePattern'
 $namePatternFromConfig = if (Test-ConfigProperty -Config $config -Name 'NamePattern') { [string]$config.NamePattern } else { $null }
 
@@ -344,6 +569,7 @@ if (Test-ConfigProperty -Config $config -Name 'EncryptionEnabled') {
 $sourcePathSpecified = $PSBoundParameters.ContainsKey('SourcePath')
 $backupLocationSpecified = $PSBoundParameters.ContainsKey('BackupLocation')
 $destinationNameSpecified = $PSBoundParameters.ContainsKey('DestinationName')
+$passwordManagerSpecified = $PSBoundParameters.ContainsKey('PasswordManager')
 $namePatternSpecified = $PSBoundParameters.ContainsKey('NamePattern')
 $excludePatternSpecified = $PSBoundParameters.ContainsKey('ExcludePattern')
 $encryptSpecified = $PSBoundParameters.ContainsKey('Encrypt')
@@ -357,7 +583,17 @@ $resolvedSourcePath = if ($sourcePathSpecified) { $SourcePath } elseif (-not [st
 $resolvedBackupLocation = if ($backupLocationSpecified) { $BackupLocation } elseif (-not [string]::IsNullOrWhiteSpace($backupLocationFromConfig)) { $backupLocationFromConfig } else { $defaultBackupLocation }
 $resolvedExcludePattern = if ($excludePatternSpecified) { @($ExcludePattern) } elseif ($excludeFromConfig.Count -gt 0) { @($excludeFromConfig) } else { @($defaultExcludePattern) }
 $resolvedNamePattern = if ($namePatternSpecified) { $NamePattern } elseif (-not [string]::IsNullOrWhiteSpace($namePatternFromConfig)) { $namePatternFromConfig } else { $defaultNamePattern }
+$resolvedPasswordManager = if ($passwordManagerSpecified) { $PasswordManager } elseif (-not [string]::IsNullOrWhiteSpace($passwordManagerFromConfig)) { $passwordManagerFromConfig } else { '' }
 $useEncryption = if ($encryptSpecified) { [bool]$Encrypt } elseif ($encryptConfigSpecified) { $encryptFromConfig } else { $false }
+
+Set-PasswordManagerEnvironmentVariables -Config $config
+
+$resolvedPasswordManager = if ([string]::IsNullOrWhiteSpace($resolvedPasswordManager)) { '' } else { $resolvedPasswordManager.Trim() }
+$passwordManagerProvider = Resolve-PasswordManagerProvider -Name $resolvedPasswordManager
+
+if ($passwordSpecified -and $passwordManagerProvider -ne 'None') {
+    Write-BackupLog -Level WARNING -Message 'PasswordManager is ignored because Password was explicitly provided.'
+}
 
 if (-not $NonInteractive) {
     if (-not $sourcePathSpecified) {
@@ -374,6 +610,25 @@ if (-not $NonInteractive) {
 
     if (-not $encryptSpecified) {
         $useEncryption = Read-ResolvedEncryptionChoice -CurrentValue $useEncryption
+    }
+}
+
+if (-not $NonInteractive -and $useEncryption -and -not $passwordSpecified) {
+    $passwordSourceChoice = Resolve-InteractivePasswordSourceChoice -DefaultToManager:($passwordManagerProvider -ne 'None')
+
+    switch ($passwordSourceChoice) {
+        'Manual' {
+            $passwordManagerProvider = 'None'
+        }
+        'Manager' {
+            if ($passwordManagerProvider -eq 'None') {
+                $passwordManagerProvider = Read-InteractivePasswordManagerProvider -CurrentProviderName $resolvedPasswordManager
+            }
+        }
+        default {
+            Write-BackupLog -Level INFO -Message 'Backup canceled by user before password input.'
+            return
+        }
     }
 }
 
@@ -400,6 +655,39 @@ elseif ($destination.Provider -eq 'Rclone') {
 }
 else {
     throw "Unsupported backup destination provider '$($destination.Provider)'."
+}
+
+if ($useEncryption -and -not $passwordSpecified) {
+    if ($passwordManagerProvider -ne 'None') {
+        while ($useEncryption -and -not $passwordSpecified -and $passwordManagerProvider -ne 'None') {
+            try {
+                $Password = Get-PasswordFromManager -Provider $passwordManagerProvider -ScriptsDirectory $scriptsDir -NonInteractiveExecution $NonInteractive -VerboseEnabled ($VerbosePreference -ne 'SilentlyContinue')
+                $passwordSpecified = $true
+                break
+            }
+            catch {
+                if ($NonInteractive) {
+                    throw "Password retrieval from $passwordManagerProvider failed in -NonInteractive mode. $($_.Exception.Message)"
+                }
+
+                $action = Resolve-InteractivePasswordManagerFailureAction -Provider $passwordManagerProvider -FailureMessage $_.Exception.Message
+                switch ($action) {
+                    'EnterPassword' {
+                        $Password = Read-ArchivePasswordFromPrompt
+                        $passwordSpecified = $true
+                    }
+                    'NoEncryption' {
+                        $useEncryption = $false
+                        $passwordSpecified = $false
+                    }
+                    default {
+                        Write-BackupLog -Level INFO -Message 'Backup canceled by user after password manager retrieval failure.'
+                        return
+                    }
+                }
+            }
+        }
+    }
 }
 
 if ($useEncryption -and -not $passwordSpecified) {
